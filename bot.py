@@ -2,16 +2,16 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, CallbackContext
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
 load_dotenv()
-
 TOKEN = os.getenv("TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 def init_db():
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
             id SERIAL PRIMARY KEY,
@@ -39,40 +39,44 @@ def init_db():
     conn.commit()
     conn.close()
 
+# --------- COMMANDES TELEGRAM ------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buttons = [
         [InlineKeyboardButton("Logros", callback_data='achievements')],
         [InlineKeyboardButton("Ayuda", callback_data='help')]
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
-    await update.message.reply_text("¡Hola, campeón! ⚽️ Bienvenido al bot de los partidos 1 a 1, ¿qué te gustaría hacer?", reply_markup=reply_markup)
+    await update.message.reply_text("¡Hola, campeón! ⚽️ Bienvenido al bot de partidos 1v1.", reply_markup=reply_markup)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📋 Comandos disponibles:\n"
-        "/start - Iniciar el bot\n"
-        "/register <nombre> - Registrar jugador\n"
-        "/match <jug1> <goles1> <jug2> <goles2>\n"
-        "/match_copa <jug1> <goles1> <jug2> <goles2>\n"
-        "/match_apuesta <jug1> <goles1> <jug2> <goles2> <monto> <alias>\n"
+        "/register <nombre>\n"
+        "/match <jug1> <g1> <jug2> <g2>\n"
+        "/match_copa <jug1> <g1> <jug2> <g2>\n"
+        "/match_apuesta <jug1> <g1> <jug2> <g2> <monto> <alias>\n"
         "/consultar_historial_entre <jug1> <jug2>\n"
-        "/historial - Ver historial global\n"
-        "/achievements - Ver logros"
+        "/historial\n"
+        "/achievements"
     )
 
-async def button_handler(update: Update, context: CallbackContext):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
+    await query.answer()
     if data == 'achievements':
         await achievements(update, context)
     elif data == 'help':
         await help_command(update, context)
 
+# --------- FONCTIONS BOT ------------
+
 async def register_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = ' '.join(context.args)
-    if not name:
+    if not context.args:
         await update.message.reply_text("⚠️ Usa: /register NombreJugador")
         return
+    name = ' '.join(context.args)
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute("INSERT INTO players (name) VALUES (%s) ON CONFLICT (name) DO NOTHING RETURNING id", (name,))
@@ -136,6 +140,7 @@ async def register_match_apuesta(update: Update, context: ContextTypes.DEFAULT_T
         return
     p1, s1, p2, s2, monto, alias = context.args
     s1, s2 = int(s1), int(s2)
+    link = f"https://www.mercadopago.com.ar?alias={alias}&monto={monto}"
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute("SELECT id FROM players WHERE name = %s", (p1,))
@@ -149,8 +154,7 @@ async def register_match_apuesta(update: Update, context: ContextTypes.DEFAULT_T
     conn.commit()
     conn.close()
     update_statistics(p1, s1, p2, s2)
-    link = f"https://www.mercadopago.com.ar?alias={alias}&monto={monto}"
-    await update.message.reply_text(f"💰 Partido apuesta registrado: {p1} {s1} - {p2} {s2}\n🔗 Link: {link}")
+    await update.message.reply_text(f"💰 Partido apuesta: {p1} {s1} - {p2} {s2}\n🔗 Link: {link}")
 
 async def consultar_historial_entre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 2:
@@ -179,7 +183,7 @@ async def consultar_historial_entre(update: Update, context: ContextTypes.DEFAUL
             wins1 += 1
         elif s2 > s1:
             wins2 += 1
-    await update.message.reply_text(f"📊 {p1} ganó {wins1} veces\n📊 {p2} ganó {wins2} veces")
+    await update.message.reply_text(f"{p1} ganó {wins1} veces\n{p2} ganó {wins2} veces")
 
 async def historial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = psycopg2.connect(DATABASE_URL)
@@ -232,6 +236,8 @@ def update_statistics(p1, s1, p2, s2):
     conn.commit()
     conn.close()
 
+# --------- DEMARRAGE BOT ------------
+
 def main():
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
@@ -247,5 +253,5 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
