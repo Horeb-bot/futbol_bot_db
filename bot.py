@@ -1,17 +1,14 @@
 import os
 import psycopg2
-from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
-load_dotenv()
-TOKEN = os.getenv("TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
+TOKEN = os.getenv("TOKEN", "7577492603:AAGcYaB4sWZ8ALAzwsygpF7BWrx7LIHhoGg")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://futbol:sjMqGaEZeXvXsXTbYkD5F9hTMlz4Yd7o@dpg-d1frueali9vc739tje6g-a.frankfurt-postgres.render.com/futbol_bot_db")
 
 def init_db():
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
-
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
             id SERIAL PRIMARY KEY,
@@ -39,214 +36,186 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --------- COMMANDES TELEGRAM ------------
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buttons = [
         [InlineKeyboardButton("Logros", callback_data='achievements')],
         [InlineKeyboardButton("Ayuda", callback_data='help')]
     ]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await update.message.reply_text("¡Hola, campeón! ⚽️ Bienvenido al bot de partidos 1v1.", reply_markup=reply_markup)
+    await update.message.reply_text(
+        "¡Hola, campeón! ⚽️ Bienvenido al bot de los partidos 1 a 1, ¿qué te gustaría hacer?",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📋 Comandos disponibles:\n"
+        "📝 Comandos Disponibles:\n"
+        "/start - Inicia el bot\n"
         "/register <nombre>\n"
-        "/match <jug1> <g1> <jug2> <g2>\n"
-        "/match_copa <jug1> <g1> <jug2> <g2>\n"
-        "/match_apuesta <jug1> <g1> <jug2> <g2> <monto> <alias>\n"
-        "/consultar_historial_entre <jug1> <jug2>\n"
+        "/match <jugador1> <goles1> <jugador2> <goles2>\n"
+        "/match_copa <jugador1> <goles1> <jugador2> <goles2>\n"
+        "/consultar_historial_entre <j1> <j2>\n"
         "/historial\n"
         "/achievements"
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    data = query.data
     await query.answer()
-    if data == 'achievements':
+    if query.data == 'achievements':
         await achievements(update, context)
-    elif data == 'help':
+    elif query.data == 'help':
         await help_command(update, context)
 
-# --------- FONCTIONS BOT ------------
-
 async def register_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
+    name = ' '.join(context.args)
+    if not name:
         await update.message.reply_text("⚠️ Usa: /register NombreJugador")
         return
-    name = ' '.join(context.args)
     conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("INSERT INTO players (name) VALUES (%s) ON CONFLICT (name) DO NOTHING RETURNING id", (name,))
-    added = cur.fetchone()
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO players (name) VALUES (%s) ON CONFLICT DO NOTHING RETURNING id', (name,))
+    if cursor.fetchone():
+        await update.message.reply_text(f"✅ Jugador {name} registrado.")
+    else:
+        await update.message.reply_text(f"ℹ️ El jugador {name} ya está registrado.")
     conn.commit()
     conn.close()
-    if added:
-        await update.message.reply_text(f"{name} registrado.")
-    else:
-        await update.message.reply_text(f"{name} ya estaba registrado.")
 
 async def register_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 4:
-        await update.message.reply_text("Usa: /match jugador1 goles1 jugador2 goles2")
+        await update.message.reply_text("⚠️ Usa: /match jugador1 goles1 jugador2 goles2")
         return
-    p1, s1, p2, s2 = context.args
-    s1, s2 = int(s1), int(s2)
+    player1, score1, player2, score2 = context.args
+    score1, score2 = int(score1), int(score2)
     conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p1,))
-    p1_id = cur.fetchone()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p2,))
-    p2_id = cur.fetchone()
-    if not p1_id or not p2_id:
-        await update.message.reply_text("Jugadores no registrados.")
-        return
-    cur.execute("INSERT INTO matches (player1_id, player2_id, score1, score2) VALUES (%s, %s, %s, %s)", (p1_id[0], p2_id[0], s1, s2))
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM players WHERE name = %s', (player1,))
+    p1 = cursor.fetchone()
+    cursor.execute('SELECT id FROM players WHERE name = %s', (player2,))
+    p2 = cursor.fetchone()
+    if p1 and p2:
+        cursor.execute('INSERT INTO matches (player1_id, player2_id, score1, score2) VALUES (%s, %s, %s, %s)', (p1[0], p2[0], score1, score2))
+        update_statistics(player1, score1, player2, score2)
+        await update.message.reply_text(f"✅ Partido registrado: {player1} {score1} - {player2} {score2}")
+    else:
+        await update.message.reply_text("Uno o ambos jugadores no están registrados.")
     conn.commit()
     conn.close()
-    update_statistics(p1, s1, p2, s2)
-    await update.message.reply_text(f"{p1} {s1} - {p2} {s2} registrado.")
 
 async def register_match_copa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 4:
-        await update.message.reply_text("Usa: /match_copa jugador1 goles1 jugador2 goles2")
+        await update.message.reply_text("⚠️ Usa: /match_copa jugador1 goles1 jugador2 goles2")
         return
-    p1, s1, p2, s2 = context.args
-    s1, s2 = int(s1), int(s2)
+    player1, score1, player2, score2 = context.args
+    score1, score2 = int(score1), int(score2)
     conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p1,))
-    p1_id = cur.fetchone()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p2,))
-    p2_id = cur.fetchone()
-    if not p1_id or not p2_id:
-        await update.message.reply_text("Jugadores no registrados.")
-        return
-    cur.execute("INSERT INTO matches (player1_id, player2_id, score1, score2) VALUES (%s, %s, %s, %s)", (p1_id[0], p2_id[0], s1, s2))
-    if s1 > s2:
-        cur.execute("UPDATE statistics SET titles = titles + 1 WHERE player = %s", (p1,))
-    elif s2 > s1:
-        cur.execute("UPDATE statistics SET titles = titles + 1 WHERE player = %s", (p2,))
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM players WHERE name = %s', (player1,))
+    p1 = cursor.fetchone()
+    cursor.execute('SELECT id FROM players WHERE name = %s', (player2,))
+    p2 = cursor.fetchone()
+    if p1 and p2:
+        cursor.execute('INSERT INTO matches (player1_id, player2_id, score1, score2) VALUES (%s, %s, %s, %s)', (p1[0], p2[0], score1, score2))
+        update_statistics(player1, score1, player2, score2)
+        if score1 > score2:
+            cursor.execute('UPDATE statistics SET titles = titles + 1 WHERE player = %s', (player1,))
+        elif score2 > score1:
+            cursor.execute('UPDATE statistics SET titles = titles + 1 WHERE player = %s', (player2,))
+        await update.message.reply_text(f"🏆 Partido por la copa registrado: {player1} {score1} - {player2} {score2}")
+    else:
+        await update.message.reply_text("Uno o ambos jugadores no están registrados.")
     conn.commit()
     conn.close()
-    update_statistics(p1, s1, p2, s2)
-    await update.message.reply_text(f"🏆 Partido de copa: {p1} {s1} - {p2} {s2} registrado.")
-
-async def register_match_apuesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 6:
-        await update.message.reply_text("Usa: /match_apuesta jugador1 goles1 jugador2 goles2 monto alias")
-        return
-    p1, s1, p2, s2, monto, alias = context.args
-    s1, s2 = int(s1), int(s2)
-    link = f"https://www.mercadopago.com.ar?alias={alias}&monto={monto}"
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p1,))
-    p1_id = cur.fetchone()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p2,))
-    p2_id = cur.fetchone()
-    if not p1_id or not p2_id:
-        await update.message.reply_text("Jugadores no registrados.")
-        return
-    cur.execute("INSERT INTO matches (player1_id, player2_id, score1, score2) VALUES (%s, %s, %s, %s)", (p1_id[0], p2_id[0], s1, s2))
-    conn.commit()
-    conn.close()
-    update_statistics(p1, s1, p2, s2)
-    await update.message.reply_text(f"💰 Partido apuesta: {p1} {s1} - {p2} {s2}\n🔗 Link: {link}")
 
 async def consultar_historial_entre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 2:
-        await update.message.reply_text("Usa: /consultar_historial_entre jugador1 jugador2")
+        await update.message.reply_text("⚠️ Usa: /consultar_historial_entre jugador1 jugador2")
         return
-    p1, p2 = context.args
+    player1, player2 = context.args
     conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p1,))
-    id1 = cur.fetchone()
-    cur.execute("SELECT id FROM players WHERE name = %s", (p2,))
-    id2 = cur.fetchone()
-    if not id1 or not id2:
-        await update.message.reply_text("Jugadores no registrados.")
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM players WHERE name = %s', (player1,))
+    p1 = cursor.fetchone()
+    cursor.execute('SELECT id FROM players WHERE name = %s', (player2,))
+    p2 = cursor.fetchone()
+    if not p1 or not p2:
+        await update.message.reply_text("Jugador no encontrado.")
         return
-    cur.execute("""
-        SELECT score1, score2 FROM matches
-        WHERE (player1_id = %s AND player2_id = %s)
-           OR (player1_id = %s AND player2_id = %s)
-    """, (id1[0], id2[0], id2[0], id1[0]))
-    results = cur.fetchall()
+    cursor.execute('''
+        SELECT 
+            SUM(CASE WHEN player1_id=%s AND score1 > score2 THEN 1 WHEN player2_id=%s AND score2 > score1 THEN 1 ELSE 0 END),
+            SUM(CASE WHEN player1_id=%s AND score1 < score2 THEN 1 WHEN player2_id=%s AND score2 < score1 THEN 1 ELSE 0 END)
+        FROM matches
+        WHERE (player1_id=%s AND player2_id=%s) OR (player1_id=%s AND player2_id=%s)
+    ''', (p1[0], p1[0], p1[0], p1[0], p1[0], p2[0], p2[0], p1[0]))
+    result = cursor.fetchone()
+    await update.message.reply_text(f"📊 {player1} ha ganado {result[0]} veces.\n{player2} ha ganado {result[1]} veces.")
     conn.close()
-    wins1, wins2 = 0, 0
-    for s1, s2 in results:
-        if s1 > s2:
-            wins1 += 1
-        elif s2 > s1:
-            wins2 += 1
-    await update.message.reply_text(f"{p1} ganó {wins1} veces\n{p2} ganó {wins2} veces")
 
 async def historial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("""
+    cursor = conn.cursor()
+    cursor.execute('''
         SELECT p1.name, p2.name, m.score1, m.score2 FROM matches m
         JOIN players p1 ON m.player1_id = p1.id
         JOIN players p2 ON m.player2_id = p2.id
-        ORDER BY m.id DESC LIMIT 10
-    """)
-    matches = cur.fetchall()
+        ORDER BY m.id DESC
+    ''')
+    rows = cursor.fetchall()
+    if rows:
+        msg = '📜 Historial de Partidos:\n'
+        for r in rows:
+            msg += f"{r[0]} {r[2]} - {r[1]} {r[3]}\n"
+        await update.message.reply_text(msg)
+    else:
+        await update.message.reply_text("No hay partidos registrados aún.")
     conn.close()
-    msg = "📜 Últimos partidos:\n"
-    for a, b, s1, s2 in matches:
-        msg += f"{a} {s1} - {b} {s2}\n"
-    await update.message.reply_text(msg)
 
 async def achievements(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT player, goals, wins, losses, titles FROM statistics ORDER BY titles DESC, wins DESC")
-    stats = cur.fetchall()
+    cursor = conn.cursor()
+    cursor.execute('SELECT player, goals, wins, losses, titles FROM statistics ORDER BY titles DESC, wins DESC, goals DESC')
+    rows = cursor.fetchall()
+    if rows:
+        msg = "🏆 Logros:\n"
+        for p, g, w, l, t in rows:
+            total = w + l
+            winrate = (w / total) * 100 if total > 0 else 0
+            msg += f"{p} - Goles: {g}, Victorias: {w}, Derrotas: {l}, Títulos: {t}, Winrate: {winrate:.2f}%\n"
+        await update.message.reply_text(msg)
+    else:
+        await update.message.reply_text("No hay estadísticas registradas aún.")
     conn.close()
-    msg = "🏆 Logros:\n"
-    for p, g, w, l, t in stats:
-        total = w + l
-        rate = (w / total * 100) if total else 0
-        msg += f"{p} - Goles: {g}, Wins: {w}, Losses: {l}, Títulos: {t}, Winrate: {rate:.2f}%\n"
-    await update.message.reply_text(msg)
 
 def update_statistics(p1, s1, p2, s2):
     conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("""
+    cursor = conn.cursor()
+    cursor.execute('''
         INSERT INTO statistics (player, goals, wins, losses)
         VALUES (%s, %s, %s, %s)
         ON CONFLICT (player) DO UPDATE SET
-            goals = statistics.goals + %s,
-            wins = statistics.wins + CASE WHEN %s > %s THEN 1 ELSE 0 END,
-            losses = statistics.losses + CASE WHEN %s < %s THEN 1 ELSE 0 END
-    """, (p1, s1, int(s1 > s2), int(s1 < s2), s1, s1, s2, s1, s2))
-    cur.execute("""
+            goals = statistics.goals + EXCLUDED.goals,
+            wins = statistics.wins + EXCLUDED.wins,
+            losses = statistics.losses + EXCLUDED.losses
+    ''', (p1, s1, int(s1 > s2), int(s1 < s2)))
+    cursor.execute('''
         INSERT INTO statistics (player, goals, wins, losses)
         VALUES (%s, %s, %s, %s)
         ON CONFLICT (player) DO UPDATE SET
-            goals = statistics.goals + %s,
-            wins = statistics.wins + CASE WHEN %s > %s THEN 1 ELSE 0 END,
-            losses = statistics.losses + CASE WHEN %s < %s THEN 1 ELSE 0 END
-    """, (p2, s2, int(s2 > s1), int(s2 < s1), s2, s2, s1, s2, s1))
+            goals = statistics.goals + EXCLUDED.goals,
+            wins = statistics.wins + EXCLUDED.wins,
+            losses = statistics.losses + EXCLUDED.losses
+    ''', (p2, s2, int(s2 > s1), int(s2 < s1)))
     conn.commit()
     conn.close()
 
-# --------- DEMARRAGE BOT ------------
-
 def main():
-    init_db()
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("register", register_player))
     app.add_handler(CommandHandler("match", register_match))
     app.add_handler(CommandHandler("match_copa", register_match_copa))
-    app.add_handler(CommandHandler("match_apuesta", register_match_apuesta))
     app.add_handler(CommandHandler("consultar_historial_entre", consultar_historial_entre))
     app.add_handler(CommandHandler("historial", historial))
     app.add_handler(CommandHandler("achievements", achievements))
@@ -254,4 +223,6 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
+    init_db()
+    print("✅ psycopg2 importé avec succès !")
     main()
