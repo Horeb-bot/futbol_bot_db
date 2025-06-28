@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "futbol-bot"
+version = "1.0.0"
+description = "Bot Telegram pour matchs 1v1 avec stats, historique, et paris."
+authors = ["Horeb"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+python-telegram-bot = "^20.7"
+psycopg2-binary = "^2.9"
+python-dotenv = "^1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
