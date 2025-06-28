@@ -12,6 +12,7 @@ packages = [
 python = "^3.10"
 python-telegram-bot = "20.8"
 psycopg2-binary = "^2.9"
+python-dotenv = "^1.0"
 
 [build-system]
 requires = ["poetry-core"]
