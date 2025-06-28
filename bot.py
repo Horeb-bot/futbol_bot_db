@@ -7,6 +7,12 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 )
 
+# --- Lignes de diagnostic temporaires ---
+import telegram.ext # Import déjà existant, mais s'assurer qu'il est là
+import sys
+# --- Fin des lignes de diagnostic temporaires ---
+
+
 # Chargement des variables d'environnement
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -73,6 +79,17 @@ async def inconnu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Fonction principale
 def main():
+    # --- Lignes de diagnostic temporaires ---
+    # Ces lignes t'aideront à vérifier quelle version de python-telegram-bot est réellement chargée
+    # et où elle se trouve dans l'environnement d'exécution de Render.
+    try:
+        logger.info(f"DEBUG: python-telegram-bot version loaded: {telegram.ext.__version__}")
+        logger.info(f"DEBUG: Path to telegram.ext: {os.path.dirname(telegram.ext.__file__)}")
+        logger.info(f"DEBUG: sys.path: {sys.path}")
+    except Exception as e:
+        logger.error(f"DEBUG: Erreur lors de la récupération des infos telegram.ext: {e}")
+    # --- Fin des lignes de diagnostic temporaires ---
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
