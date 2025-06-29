@@ -1,4 +1,9 @@
 #!/bin/bash
+
 echo "Lancement du bot Telegram..."
-poetry install --no-root
+
+# Installer les dépendances à partir de requirements.txt
+pip install -r requirements.txt
+
+# Lancer le bot
 python bot.py
