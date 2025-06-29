@@ -1,15 +1,10 @@
 #!/bin/bash
 
-echo "📦 Installation des dépendances..."
-
-# 🔁 On désinstalle python-telegram-bot pour éviter les conflits de version
+echo "🔁 Suppression de python-telegram-bot..."
 pip uninstall -y python-telegram-bot
 
-# ✅ On installe la version correcte
-pip install python-telegram-bot==20.8
-
-# 🔁 Facultatif : (ré)installation des autres dépendances si besoin
-pip install -r requirements.txt
+echo "📦 Réinstallation propre de python-telegram-bot 20.8..."
+pip install python-telegram-bot==20.8 psycopg2-binary python-dotenv
 
 echo "🚀 Lancement du bot Telegram..."
 python bot.py
