@@ -7,12 +7,6 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 )
 
-# --- Lignes de diagnostic temporaires ---
-import telegram.ext # Import déjà existant, mais s'assurer qu'il est là
-import sys
-# --- Fin des lignes de diagnostic temporaires ---
-
-
 # Chargement des variables d'environnement
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -41,7 +35,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Commande /nouveau_match
 async def nouveau_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Création d'un nouveau match...")
-    # Ici, tu pourrais insérer dans la DB un nouveau match
+    # Exemple d’insertion dans la base (adapter selon ta table)
+    conn = connect_db()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO matchs (joueur1, joueur2, score, date) VALUES (%s, %s, %s, NOW())",
+                        ("Joueur A", "Joueur B", "0-0"))
+            conn.commit()
+            await update.message.reply_text("Match ajouté avec succès.")
+        except Exception as e:
+            logger.error(f"Erreur insertion: {e}")
+            await update.message.reply_text("Erreur lors de la création du match.")
+        finally:
+            cur.close()
+            conn.close()
 
 # Commande /historique
 async def historique(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -56,7 +64,7 @@ async def historique(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not rows:
             await update.message.reply_text("Aucun match trouvé.")
         else:
-            message = "\n".join([str(row) for row in rows])
+            message = "\n".join([f"{r[1]} vs {r[2]} - {r[3]}" for r in rows])
             await update.message.reply_text(f"Derniers matchs :\n{message}")
     except Exception as e:
         logger.error(f"Erreur de requête : {e}")
@@ -73,23 +81,12 @@ async def parier(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def statistiques(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Statistiques des joueurs à venir...")
 
-# Réponse aux commandes inconnues
+# Commande inconnue
 async def inconnu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Commande inconnue. Tape /start pour commencer.")
 
 # Fonction principale
 def main():
-    # --- Lignes de diagnostic temporaires ---
-    # Ces lignes t'aideront à vérifier quelle version de python-telegram-bot est réellement chargée
-    # et où elle se trouve dans l'environnement d'exécution de Render.
-    try:
-        logger.info(f"DEBUG: python-telegram-bot version loaded: {telegram.ext.__version__}")
-        logger.info(f"DEBUG: Path to telegram.ext: {os.path.dirname(telegram.ext.__file__)}")
-        logger.info(f"DEBUG: sys.path: {sys.path}")
-    except Exception as e:
-        logger.error(f"DEBUG: Erreur lors de la récupération des infos telegram.ext: {e}")
-    # --- Fin des lignes de diagnostic temporaires ---
-
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -99,7 +96,7 @@ def main():
     app.add_handler(CommandHandler("statistiques", statistiques))
     app.add_handler(MessageHandler(filters.COMMAND, inconnu))
 
-    logger.info("Bot démarré avec succès...")
+    logger.info("✅ Bot démarré avec succès.")
     app.run_polling()
 
 if __name__ == '__main__':
